@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>財産ID NFC OS</title>
+
+<style>
+body {
+  font-family: sans-serif;
+  background:#111;
+  color:#fff;
+  text-align:center;
+}
+
+.card {
+  background:#222;
+  margin:10px;
+  padding:15px;
+  border-radius:12px;
+}
+
+.big {
+  font-size:40px;
+  color:gold;
+}
+
+button, input {
+  font-size:18px;
+  padding:10px;
+  margin:5px;
+}
+</style>
+</head>
+
+<body>
+
+<h1>🏦 財産ID NFC OS</h1>
+
+<!-- 📡 NFC -->
+<div class="card">
+  <button onclick="startNFC()">📡 NFC読み取り</button>
+  <p id="user">未ログイン</p>
+</div>
+
+<!-- 💰 残高 -->
+<div class="card">
+  <h2>残高</h2>
+  <div id="balance" class="big">0</div>
+</div>
+
+<!-- 🏪 お店 -->
+<div class="card">
+  <h2>🏪 お店</h2>
+
+  🍭お菓子 30 <button onclick="buy(30,'お菓子')">購入</button><br>
+  🎮ゲーム 80 <button onclick="buy(80,'ゲーム')">購入</button>
+</div>
+
+<!-- 🎁 報酬 -->
+<div class="card">
+  <h2>🎁 お手伝い</h2>
+
+  <input id="reward" type="number" placeholder="ポイント">
+  <button onclick="charge()">＋付与</button>
+</div>
+
+<!-- 📊 ログ -->
+<div class="card">
+  <h2>ログ</h2>
+  <pre id="log"></pre>
+</div>
+
+<script>
+
+/* 🧠 財産DB（アカウント型） */
+let db = {
+  "001": { name:"父", balance:100 },
+  "002": { name:"母", balance:100 },
+  "003": { name:"子A", balance:100 },
+  "004": { name:"子B", balance:100 }
+};
+
+let current = null;
+
+/* 🔒 安全変換 */
+function num(v) {
+  v = Number(v);
+  if (isNaN(v) || !isFinite(v)) return 0;
+  return v;
+}
+
+/* 📡 NFC（財産ID読み取り） */
+async function startNFC() {
+  if (!("NDEFReader" in window)) {
+    alert("NFC非対応");
+    return;
+  }
+
+  const ndef = new NDEFReader();
+  await ndef.scan();
+
+  log("NFC待機中...");
+
+  ndef.onreading = (event) => {
+    const decoder = new TextDecoder();
+    let raw = "";
+
+    for (const r of event.message.records) {
+      raw = decoder.decode(r.data);
+    }
+
+    let id = raw.split("=")[1];
+
+    if (!db[id]) {
+      speak("財産IDが存在しません");
+      return;
+    }
+
+    current = id;
+
+    document.getElementById("user").innerText =
+      db[id].name + "（ID:" + id + "）";
+
+    update();
+    speak("ログインしました");
+  };
+}
+
+/* 📊 更新 */
+function update() {
+  if (!current) return;
+
+  document.getElementById("balance").innerText =
+    db[current].balance;
+}
+
+/* 🏪 購入 */
+function buy(price, item) {
+  if (!current) return;
+
+  price = num(price);
+
+  if (db[current].balance < price) {
+    speak("残高不足です");
+    return;
+  }
+
+  db[current].balance -= price;
+
+  log(current + " - " + price + " " + item);
+
+  beep();
+  speak("支払い完了");
+  update();
+}
+
+/* 🎁 報酬 */
+function charge() {
+  if (!current) return;
+
+  let v = num(document.getElementById("reward").value);
+
+  if (v <= 0) return;
+
+  db[current].balance += v;
+
+  log(current + " + " + v + " お手伝い");
+
+  beep();
+  speak("ポイント付与");
+  update();
+}
+
+/* 🔊 音 */
+function beep() {
+  const ctx = new AudioContext();
+  const o = ctx.createOscillator();
+  o.frequency.value = 650;
+  o.connect(ctx.destination);
+  o.start();
+  o.stop(ctx.currentTime + 0.1);
+}
+
+/* 🔴 音声 */
+function speak(t) {
+  const u = new SpeechSynthesisUtterance(t);
+  u.lang = "ja-JP";
+  speechSynthesis.speak(u);
+}
+
+/* 📜 ログ */
+function log(t) {
+  document.getElementById("log").innerText += "\n" + t;
+}
+
+</script>
+
+</body>
+</html>
