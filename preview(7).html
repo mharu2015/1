@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>NFC書き込みツール</title>
+
+<style>
+body {
+  font-family: sans-serif;
+  background:#111;
+  color:#fff;
+  text-align:center;
+}
+
+.card {
+  background:#222;
+  margin:10px;
+  padding:15px;
+  border-radius:12px;
+}
+
+input, button {
+  font-size:20px;
+  padding:10px;
+  margin:5px;
+}
+
+.big {
+  font-size:30px;
+  color:gold;
+}
+</style>
+</head>
+
+<body>
+
+<h1>📡 NFC書き込みツール</h1>
+
+<div class="card">
+  <h2>書き込むID</h2>
+
+  <input id="text" placeholder="例：001">
+  <br>
+
+  <button onclick="writeNFC()">📡 NFCに書き込む</button>
+</div>
+
+<div class="card">
+  <p class="big" id="status">待機中</p>
+</div>
+
+<script>
+
+/* 📡 NFC書き込み */
+async function writeNFC() {
+
+  if (!("NDEFReader" in window)) {
+    alert("この端末はNFC非対応です");
+    return;
+  }
+
+  const value = document.getElementById("text").value.trim();
+
+  if (!value) {
+    alert("IDを入力してください");
+    return;
+  }
+
+  try {
+    const ndef = new NDEFReader();
+
+    await ndef.write(value);
+
+    document.getElementById("status").innerText =
+      "✅ 書き込み成功: " + value;
+
+  } catch (e) {
+    console.log(e);
+
+    document.getElementById("status").innerText =
+      "❌ 書き込み失敗";
+  }
+}
+
+</script>
+
+</body>
+</html>
