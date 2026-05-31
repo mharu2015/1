@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>家庭NFC銀行OS WORK</title>
+
+<style>
+body {
+  font-family: sans-serif;
+  background:#111;
+  color:#fff;
+  text-align:center;
+}
+
+.card {
+  background:#222;
+  margin:10px;
+  padding:15px;
+  border-radius:12px;
+}
+
+.big {
+  font-size:42px;
+  color:gold;
+}
+
+button, input {
+  font-size:18px;
+  padding:10px;
+  margin:5px;
+}
+</style>
+</head>
+
+<body>
+
+<h1>🏦 家庭NFC銀行OS WORK</h1>
+
+<!-- 📡 NFC -->
+<div class="card">
+  <button onclick="startNFC()">📡 NFCログイン</button>
+  <p id="user">未ログイン</p>
+</div>
+
+<!-- 💰 残高 -->
+<div class="card">
+  <h2>💰 残高</h2>
+  <div id="balance" class="big">0</div>
+</div>
+
+<!-- 🏪 お店 -->
+<div class="card">
+  <h2>🏪 お店</h2>
+  🍭お菓子 30 <button onclick="buy(30)">購入</button>
+</div>
+
+<!-- 💪 お手伝い申請 -->
+<div class="card">
+  <h2>💪 お手伝い申請</h2>
+
+  <input id="workAmount" type="number" placeholder="申請ポイント">
+  <button onclick="requestWork()">申請</button>
+
+  <br><br>
+
+  <div id="pending">未申請</div>
+  <button onclick="approveWork()">👨‍👩‍👧 承認して付与</button>
+</div>
+
+<!-- 📊 ログ -->
+<div class="card">
+  <h2>📊 ログ</h2>
+  <pre id="log"></pre>
+</div>
+
+<script>
+
+/* 🧠 家族DB */
+let db = {
+  "001": { name:"父", balance:0 },
+  "002": { name:"母", balance:0 },
+  "003": { name:"子A", balance:0 },
+  "004": { name:"子B", balance:0 }
+};
+
+let current = null;
+let pendingWork = null;
+
+/* 🔒 安全数値 */
+function num(v) {
+  v = Number(v);
+  if (isNaN(v) || !isFinite(v)) return 0;
+  return v;
+}
+
+/* 💾 保存 */
+function save() {
+  localStorage.setItem("nfc_bank_work", JSON.stringify(db));
+}
+
+/* 📥 読み込み */
+function load() {
+  const data = localStorage.getItem("nfc_bank_work");
+  if (data) db = JSON.parse(data);
+}
+
+/* 📡 NFC */
+async function startNFC() {
+  if (!("NDEFReader" in window)) {
+    alert("NFC非対応");
+    return;
+  }
+
+  const ndef = new NDEFReader();
+  await ndef.scan();
+
+  log("📡 NFC待機中...");
+
+  ndef.onreading = (event) => {
+    const decoder = new TextDecoder();
+    let raw = "";
+
+    for (const r of event.message.records) {
+      raw += decoder.decode(r.data);
+    }
+
+    let id = raw.trim().replace("wallet=", "");
+
+    let m = id.match(/\d+/);
+    if (m) id = m[0];
+
+    if (!db[id]) {
+      log("❌ 無効ID");
+      return;
+    }
+
+    current = id;
+
+    document.getElementById("user").innerText =
+      db[id].name + "（ID:" + id + "）";
+
+    update();
+    save();
+  };
+}
+
+/* 📊 更新 */
+function update() {
+  if (!current) return;
+
+  document.getElementById("balance").innerText =
+    db[current].balance;
+}
+
+/* 🏪 購入 */
+function buy(price) {
+  if (!current) return;
+
+  price = num(price);
+
+  if (db[current].balance < price) return;
+
+  db[current].balance -= price;
+
+  log("支払い -" + price);
+
+  sound();
+  update();
+  save();
+}
+
+/* 💪 お手伝い申請 */
+function requestWork() {
+  if (!current) return;
+
+  let v = num(document.getElementById("workAmount").value);
+
+  if (v <= 0) return;
+
+  pendingWork = v;
+
+  document.getElementById("pending").innerText =
+    "申請中: " + v + "pt";
+
+  log("💪 お手伝い申請 " + v);
+}
+
+/* 👨‍👩‍👧 承認付与 */
+function approveWork() {
+  if (!current) return;
+
+  if (!pendingWork) {
+    log("未申請");
+    return;
+  }
+
+  db[current].balance += pendingWork;
+
+  log("✅ お手伝い承認 +" + pendingWork);
+
+  pendingWork = null;
+
+  document.getElementById("pending").innerText =
+    "未申請";
+
+  sound();
+  update();
+  save();
+}
+
+/* 🔊 音 */
+function sound() {
+  const audio = new Audio("a.mp3");
+  audio.play();
+}
+
+/* 📜 ログ */
+function log(t) {
+  document.getElementById("log").innerText += "\n" + t;
+}
+
+/* 🚀 起動 */
+load();
+update();
+
+</script>
+
+</body>
+</html>
