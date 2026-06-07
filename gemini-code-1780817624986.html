@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>自作カーナビ オフラインシステム (Firefox版)</title>
+    <link rel="stylesheet" href="leaflet.css" />
+    <script src="leaflet.js"></script>
+    <style>
+        body { margin: 0; padding: 0; background-color: #000; color: #fff; font-family: sans-serif; user-select: none; overflow: hidden; }
+        #boot-screen { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background-color: #000; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 9999; text-align: center; }
+        .warning-text { color: #ff3333; font-size: 24px; font-weight: bold; line-height: 1.8; margin-bottom: 30px; }
+        .boot-btn { background-color: #333; color: #fff; border: 2px solid #fff; padding: 15px 50px; font-size: 22px; cursor: pointer; border-radius: 5px; }
+        #main-container { display: none; flex-direction: column; width: 100vw; height: 100vh; }
+        #display-area { flex: 1; background-color: #222; position: relative; overflow: hidden; }
+        #map-container, #pdf-container { width: 100%; height: 100%; position: absolute; top: 0; left: 0; display: none; }
+        #map { width: 100%; height: 100%; background: #1a1a1a; }
+        .pdf-frame { width: 100%; height: 100%; border: none; background-color: #fff; }
+        #guide-msg { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; font-size: 20px; color: #aaa; z-index: 5; pointer-events: none; }
+        .overlay-menu { display: none; position: absolute; top: 5%; left: 5%; width: 90%; height: 80%; background-color: rgba(10, 10, 10, 0.95); border: 3px solid #00c6ff; border-radius: 10px; padding: 20px; box-sizing: border-box; z-index: 100; }
+        .menu-title { font-size: 22px; border-bottom: 2px solid #00c6ff; padding-bottom: 10px; margin-bottom: 15px; color: #00c6ff; }
+        .menu-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; }
+        .menu-btn { background-color: #222; color: #fff; border: 1px solid #555; padding: 15px; font-size: 18px; cursor: pointer; text-align: center; border-radius: 5px; }
+        .menu-btn:active { background-color: #00c6ff; color: #000; }
+        .close-btn { position: absolute; top: 10px; right: 10px; background-color: #ff3333; color: #fff; border: none; padding: 5px 15px; cursor: pointer; }
+        #control-bar { height: 85px; background-color: #111; border-top: 2px solid #444; display: flex; justify-content: space-around; align-items: center; padding: 0 5px; }
+        .nav-button { flex: 1; height: 65px; margin: 0 3px; background: linear-gradient(#444, #222); border: 1px solid #666; color: #fff; font-size: 15px; font-weight: bold; border-radius: 5px; cursor: pointer; display: flex; justify-content: center; align-items: center; text-align: center; }
+        .nav-button:active { background: linear-gradient(#00c6ff, #0072ff); box-shadow: 0 0 10px #00c6ff; }
+        #status-toast { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); background-color: rgba(0,0,0,0.85); padding: 12px 25px; border-radius: 20px; border: 1px solid #00c6ff; display: none; z-index: 1000; font-weight: bold; }
+        #file-input-geojson, #file-input-pdf { display: none; }
+    </style>
+</head>
+<body>
+
+    <div id="boot-screen">
+        <div class="warning-text">
+            ﾜﾎｰ<br><br>
+            ｼﾀ ｼﾞｯｻｲﾉ ｺｳﾂｳ ｼﾃｲﾆ ｼﾀｶﾞｯﾃ ｿｳｺｳ ｼﾃ ｸﾀﾞｻｲ。
+        </div>
+        <button class="boot-btn" onclick="bootSystem()">OK</button>
+    </div>
+
+    <div id="main-container">
+        <input type="file" id="file-input-geojson" accept=".geojson,.json" onchange="loadGeoJSON(event)">
+        <input type="file" id="file-input-pdf" accept=".pdf" onchange="loadPDF(event)">
+
+        <div id="display-area">
+            <div id="status-toast"></div>
+            <div id="guide-msg">USBﾁｽﾞ ｾﾝﾀｸ ﾎﾞﾀﾝ ｦ ｵｼﾃ<br>ﾏｯﾌﾟﾌｧｲﾙ ｦ ﾖﾐｺﾝﾃﾞ ｸﾀﾞｻｲ</div>
+
+            <div id="map-container"><div id="map"></div></div>
+            <div id="pdf-container"></div>
+
+            <div id="menu-overlay" class="overlay-menu">
+                <button class="close-btn" onclick="closeOverlay('menu-overlay')">× 閉じる</button>
+                <div class="menu-title">ﾒﾆｭｰ</div>
+                <div class="menu-grid">
+                    <button class="menu-btn" onclick="showSubMenu('guidance-menu')">案内 (名称・住所)</button>
+                    <button class="menu-btn" onclick="showSubMenu('route-menu')">ルート再検索</button>
+                    <button class="menu-btn" onclick="showSubMenu('setting-menu')">設定 (音量調整)</button>
+                </div>
+            </div>
+
+            <div id="guidance-menu" class="overlay-menu">
+                <button class="close-btn" onclick="backToMenu('guidance-menu')">戻る</button>
+                <div class="menu-title">案内 (ﾒｲｼｮｳ ｼﾞｭｳｼｮ)</div>
+                <div class="menu-grid">
+                    <button class="menu-btn" onclick="mockAction('名称検索を開始します')">名称検索</button>
+                    <button class="menu-btn" onclick="mockAction('住所検索を開始します')">住所検索</button>
+                </div>
+            </div>
+
+            <div id="route-menu" class="overlay-menu">
+                <button class="close-btn" onclick="backToMenu('route-menu')">戻る</button>
+                <div class="menu-title">ルート再ルート検索</div>
+                <div class="menu-grid">
+                    <button class="menu-btn" onclick="selectRoute('推奨')">推奨</button>
+                    <button class="menu-btn" onclick="selectRoute('一般道優先')">一般道優先</button>
+                    <button class="menu-btn" onclick="selectRoute('有料道優先')">有料道優先</button>
+                    <button class="menu-btn" onclick="selectRoute('距離優先')">距離優先</button>
+                </div>
+            </div>
+
+            <div id="setting-menu" class="overlay-menu">
+                <button class="close-btn" onclick="backToMenu('setting-menu')">戻る</button>
+                <div class="menu-title">設定</div>
+                <p style="font-size:18px; margin-left:10px;">ナビ音量変更</p>
+                <div class="menu-grid">
+                    <button class="menu-btn" onclick="changeNaviVol(1)">ナビ音量 ＋</button>
+                    <button class="menu-btn" onclick="changeNaviVol(-1)">ナビ音量 －</button>
+                </div>
+            </div>
+
+            <div id="map-select-menu" class="overlay-menu">
+                <button class="close-btn" onclick="closeOverlay('map-select-menu')">× 閉じる</button>
+                <div class="menu-title">usb地図選択</div>
+                <div class="menu-grid">
+                    <button class="menu-btn" onclick="triggerFileInput('geojson')">GeoJSONデータを読み込む</button>
+                    <button class="menu-btn" onclick="triggerFileInput('pdf')">PDF地図を読み込む</button>
+                </div>
+            </div>
+
+            <div id="av-overlay" class="overlay-menu">
+                <button class="close-btn" onclick="closeOverlay('av-overlay')">× 閉じる</button>
+                <div class="menu-title">ﾐｭｰｼﾞｯｸｷｬｯﾁｬｰ (AV)</div>
+                <div style="background:#111; padding:20px; border-radius:5px; text-align:center; border: 1px solid #333;">
+                    <p style="color:#00c6ff; font-weight:bold; font-size:18px;">USB → HDD ｺﾋﾟｰ完了</p>
+                    <div id="track-info" style="font-size:24px; margin:30px 0; color:#fff;">再生中: トラック 1</div>
+                </div>
+            </div>
+        </div>
+
+        <div id="control-bar">
+            <button class="nav-button" onclick="changeVol(1)">+vol</button>
+            <button class="nav-button" onclick="changeVol(-1)">-</button>
+            <button class="nav-button" onclick="openMenu()">ﾒﾆｭｰ</button>
+            <button class="nav-button" onclick="goCurrentLocation()">現在地</button>
+            <button class="nav-button" onclick="openAV()">av</button>
+            <button class="nav-button" onclick="changeTrack(1)">+ﾄﾗｯｸ</button>
+            <button class="nav-button" onclick="changeTrack(-1)">-</button>
+            <button class="nav-button" onclick="selectUSBMap()">usb地図選択</button>
+        </div>
+    </div>
+
+    <script>
+        let mainVolume = 10; let naviVolume = 8; let currentTrack = 1; let leafletMap = null; let geojsonLayer = null;
+
+        function bootSystem() {
+            document.getElementById('boot-screen').style.display = 'none';
+            document.getElementById('main-container').style.display = 'flex';
+            showToast("Firefoxオフラインシステム起動");
+            leafletMap = L.map('map').setView([0, 0], 2);
+        }
+
+        function showToast(text) {
+            const toast = document.getElementById('status-toast');
+            toast.innerText = text; toast.style.display = 'block';
+            setTimeout(() => { toast.style.display = 'none'; }, 2000);
+        }
+
+        function changeVol(val) { mainVolume += val; if(mainVolume < 0) mainVolume = 0; showToast("主音量: " + mainVolume); }
+        function changeNaviVol(val) { naviVolume += val; if(naviVolume < 0) naviVolume = 0; showToast("ナビ音量: " + naviVolume); }
+        function changeTrack(val) { currentTrack += val; if(currentTrack < 1) currentTrack = 1; document.getElementById('track-info').innerText = "再生中: トラック " + currentTrack; showToast("トラック " + currentTrack); }
+        function goCurrentLocation() { closeAllOverlays(); showToast("現在地周辺"); if(geojsonLayer) { leafletMap.fitBounds(geojsonLayer.getBounds()); } }
+        
+        function selectUSBMap() { closeAllOverlays(); document.getElementById('map-select-menu').style.display = 'block'; }
+        function triggerFileInput(type) { document.getElementById('map-select-menu').style.display = 'none'; if(type === 'geojson') { document.getElementById('file-input-geojson').click(); } else if(type === 'pdf') { document.getElementById('file-input-pdf').click(); } }
+
+        function loadGeoJSON(event) {
+            const file = event.target.files[0]; if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const geojsonData = JSON.parse(e.target.result);
+                    document.getElementById('guide-msg').style.display = 'none';
+                    document.getElementById('pdf-container').style.display = 'none';
+                    document.getElementById('map-container').style.display = 'block';
+                    if(geojsonLayer) { leafletMap.removeLayer(geojsonLayer); }
+                    geojsonLayer = L.geoJSON(geojsonData, { style: function () { return { color: "#00c6ff", weight: 5 }; } }).addTo(leafletMap);
+                    leafletMap.fitBounds(geojsonLayer.getBounds());
+                    showToast("GeoJSON読込完了");
+                    leafletMap.invalidateSize();
+                } catch(err) { alert("JSON形式が正しくありません"); }
+            };
+            reader.readAsText(file);
+        }
+
+        // Firefoxの組み込みPDFビューア用にiframeとして再生成
+        function loadPDF(event) {
+            const file = event.target.files[0]; if (!file) return;
+            const fileURL = URL.createObjectURL(file);
+            
+            document.getElementById('guide-msg').style.display = 'none';
+            document.getElementById('map-container').style.display = 'none';
+            
+            const pdfContainer = document.getElementById('pdf-container');
+            pdfContainer.style.display = 'block';
+
+            // Firefoxの内蔵ビューアをツールバー無しで埋め込み
+            pdfContainer.innerHTML = `<iframe class="pdf-frame" src="${fileURL}#toolbar=0"></iframe>`;
+            
+            showToast("PDF地図を画面内に表示しました");
+        }
+
+        function openMenu() { closeAllOverlays(); document.getElementById('menu-overlay').style.display = 'block'; }
+        function openAV() { closeAllOverlays(); document.getElementById('av-overlay').style.display = 'block'; }
+        function showSubMenu(id) { document.getElementById('menu-overlay').style.display = 'none'; document.getElementById(id).style.display = 'block'; }
+        function backToMenu(id) { document.getElementById(id).style.display = 'none'; document.getElementById('menu-overlay').style.display = 'block'; }
+        function closeOverlay(id) { document.getElementById(id).style.display = 'none'; }
+        function closeAllOverlays() { document.querySelectorAll('.overlay-menu').forEach(el => el.style.display = 'none'); }
+        function selectRoute(mode) { showToast(mode + "ルート再検索"); closeAllOverlays(); }
+        function mockAction(msg) { showToast(msg); closeAllOverlays(); }
+    </script>
+</body>
+</html>
